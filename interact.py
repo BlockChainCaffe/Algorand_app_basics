@@ -14,58 +14,6 @@ import inspect
 
 '''
 ----------------------------------------------------------------------------------------------------    
-    The following 2 functions are used to inspect modules and classes/objects
-----------------------------------------------------------------------------------------------------    
-'''
-
-def print_module_contents(module):
-    print(f"\n📦 --- Functions in {module.__name__} ---")
-    for name, item in inspect.getmembers(module, inspect.isfunction):
-        print(f"🈸 Function: {name}")
-    
-    print(f"\n📦 --- Classes in {module.__name__} ---")
-    for name, item in inspect.getmembers(module, inspect.isclass):
-        # Filter out classes not defined in this module (optional)
-        if item.__module__ == module.__name__:
-            print(f"🔰 Class: {name}")
-            # Print methods in the class
-            print("⭐  Methods:")
-            for method_name, method in inspect.getmembers(item, inspect.isfunction):
-                if not method_name.startswith('__'):  # Skip magic methods
-                    print(f"    - {method_name}")
-
-def print_object_contents(obj):
-    # Get the class name
-    class_name = obj.__class__.__name__
-    print(f"\n==== Object of class {class_name} ====")
-    
-    # Print attributes/parameters
-    print("\n-- Attributes/Parameters --")
-    for attr in dir(obj):
-        # Skip private and magic attributes (those that start with _)
-        if not attr.startswith('_'):
-            # Get the value
-            value = getattr(obj, attr)
-            # Check if it's callable (a method) or an attribute
-            if not callable(value):
-                print(f"🧩 Attribute: {attr} = {value}")
-    
-    # Print methods
-    print("\n-- Methods --")
-    for attr in dir(obj):
-        if not attr.startswith('_'):
-            value = getattr(obj, attr)
-            if callable(value):
-                # Get the signature if it's a method
-                try:
-                    signature = inspect.signature(value)
-                    print(f"⭐ Method: {attr}{signature}")
-                except (ValueError, TypeError):
-                    print(f"⭐ Method: {attr}()")
-
-
-'''
-----------------------------------------------------------------------------------------------------    
     PART 1: collect all the needed data to create classes
 ----------------------------------------------------------------------------------------------------    
 '''
@@ -80,7 +28,7 @@ algod_address       = None
 algod_token         = None
 algod_client        = None 
 algorand_client     = None
-lora_link            = None
+lora_link           = None
 
 ## Contract classes
 contract_name       = None
@@ -88,6 +36,11 @@ app_id              = None
 client_object       = None      ## This will contain the classes created in the *.client.py module (AppClient and AppFactory)
 app_client          = None
 signer              = None      ## Account derived from private key that will sign transactions
+
+## MBR
+# 1_000 for the 1 transactions
+required_balance        = 1_000
+
 
 ## Get values from shelves
 with shelve.open("shelve.db") as db:
@@ -170,15 +123,6 @@ if address != signer.address:
 
 ## Connect to Algorand net via client
 try:
-    algod_client = AlgodClient(
-        algod_address= algod_address,
-        algod_token= algod_token
-    )
-    status = algod_client.status()
-    if 'last-round' in status:
-        print("✅ Connected")
-        print("🕓 Last round: ", status['last-round'])
-    
     # Define a network endpoint
     algo_net =AlgoClientNetworkConfig(
             server=algod_address,
@@ -190,7 +134,6 @@ try:
         indexer_config = algo_net,
         kmd_config = algo_net
     ))
-
 except Exception as e:
     print("💩 ", e)
     print("❌ Could not connet! Quitting")
@@ -201,14 +144,14 @@ except Exception as e:
 
 ## Get some account info (it's a check that we can speak to the node)
 try:
-    account_info = algod_client.account_info(address)
-    print("💰 Account balance", account_info['amount']/1_000_000, "algos")
-    print("🏦 Minimum balance", account_info['min-balance']/1_000_000, "algos")
+    account_info = algorand_client.account.get_information(address)
+    print("💰 Account balance", account_info.amount.micro_algo/1_000_000, "algos")
+    print("🏦 Minimum balance", account_info.min_balance.micro_algo /1_000_000, "algos")
 except Exception as e:
     print("💩 ", e)
     print("❌ Could not get address info! Quitting")
     exit(1006)
-if  (account_info['amount'] - account_info['min-balance']) < 1_000:
+if  (account_info.amount.micro_algo - account_info.min_balance.micro_algo)< required_balance:
     print("💸 You are too poor! Quitting")
     exit(1007)
 

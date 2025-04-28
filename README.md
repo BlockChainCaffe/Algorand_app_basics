@@ -29,7 +29,9 @@ Programs:
 - **contract.py**: simple helloword contract
 - **generate_account.py**: generates an account (private key and address) and stores it in the shelve db for other programs
 - **set_network.py**: lets you choose where to deploy the contract (localnet, testne, mainnet) and stores the parameters in the shelve db
+- **helpers.py**: some python functions you can play with
 - **shelview.py**: prints all key:values in the shelves db
+- **clean.py**: tool to remove entries from `shelve.db`
 - **deploy.py**: deploy program (you don't say!). Gets data from shelve db and uses it with the files to deploy the contract in the selected network with the selected account
 - **interact.py**: an application that interacts with the application using the compiled client
 
@@ -118,7 +120,7 @@ Once done the private key and address will be registered in `shelve.db` and prin
 You can later use the `shelview.py` program to dump the contents of shelve.db to retrieve these values.
 <br/>
 
-### Step4: fund the account
+### Step4: Fund the user account
 
 The account you created in step 3 needs to be empty to operate and meet the MBR requirements.
 Depending on the network you have different options to get some algo in the account balance
@@ -140,16 +142,17 @@ Once you funded the account, use LORA set to the corresponding network to check 
 
 <br/>
 
-### Step5: manual deploy
-This step allows for raw/low-level manual deploy. Use this to get a grasp of how deploy works.
+### Step5: Deploy
+This step deploys the contract to the selected network using the parameters stored in the `shelves.db`. 
 
-Run the `deploy.py` program. It will get the values from `shelve.db` and use them to deploy the contract.
-Unless some error occurs the program will be deployed and you'll get:
+Run the `deploy.py` program.
+Unless some error occurs the app will be deployed and you'll get:
 - application ID
 - application account address
+- deploy transaction ID
 - link to inspect the deployed contract in Lora explorer
 
-The deploy account will also fund the application account
+The deploy.py script will also fund the application account and show the results and some details of the transactions involved. You can then see the transactions using LORA.
 
 <br/>
 
