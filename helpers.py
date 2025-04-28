@@ -1,3 +1,6 @@
+import inspect
+import os
+
 '''
 ----------------------------------------------------------------------------------------------------    
     The following 2 functions are used to inspect modules and classes/objects
@@ -48,3 +51,12 @@ def print_object_contents(obj):
                     print(f"⭐ Method: {attr}{signature}")
                 except (ValueError, TypeError):
                     print(f"⭐ Method: {attr}()")
+
+
+
+
+def cls():    # Clear console based on the operating system
+    if os.name == 'nt':  # For Windows
+        os.system('cls')
+    else:  # For Unix/Linux/Mac
+        os.system('clear')

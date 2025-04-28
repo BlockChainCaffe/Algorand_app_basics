@@ -2,15 +2,21 @@
 
 import shelve
 import os
+import json
 import importlib
 from   pathlib import Path
 
 from   algosdk.v2client.algod import AlgodClient
-from   algokit_utils.algorand import AlgorandClient, AlgoClientConfigs, AlgoClientNetworkConfig
-from   algokit_utils import CommonAppCallParams, AlgoAmount, SigningAccount
+from   algokit_utils.algorand import AlgorandClient, \
+                                    AlgoClientConfigs, \
+                                    AlgoClientNetworkConfig
+from   algokit_utils import CommonAppCallParams, \
+                            AlgoAmount, \
+                            SigningAccount
 
-import inspect
-
+from helpers import print_module_contents, \
+                    print_object_contents, \
+                    cls
 
 '''
 ----------------------------------------------------------------------------------------------------    
@@ -41,6 +47,7 @@ signer              = None      ## Account derived from private key that will si
 # 1_000 for the 1 transactions
 required_balance        = 1_000
 
+cls()
 
 ## Get values from shelves
 with shelve.open("shelve.db") as db:
@@ -72,6 +79,13 @@ with shelve.open("shelve.db") as db:
         print("🟢 Using app id: ", app_id)
     else:
         print("❌ Algorand token address not specified")
+        exit(2005)
+
+    if 'contract_name' in db and db['contract_name'] != None:
+        contract_name = db['contract_name']
+        print("🟢 Using app id: ", contract_name)
+    else:
+        print("❌ Contract name not specified")
         exit(2005)
 
     if 'lora_link' in db:
@@ -156,10 +170,41 @@ if  (account_info.amount.micro_algo - account_info.min_balance.micro_algo)< requ
     exit(1007)
 
 
+'''
+----------------------------------------------------------------------------------------------------    
+    PART3: Inspect the contrac ABI and get to know the contract
+----------------------------------------------------------------------------------------------------    
+'''
+
+## Get client module file and contract name
+try:
+    directory = Path('./')
+    abi_file = list(directory.glob(contract_name+'.arc56.json'))
+    if len(abi_file) != 1:
+        print("❌ Exaclty 1 arc56 ABI file expected ! Quitting")
+        exit(2008)
+    else:
+        abi_file = list(map(lambda x: str(x), abi_file))[0]
+except Exception as e:
+    print("💩 ", e)
+    print("❌ Error finding client file! Quitting")
+
+with open(abi_file) as f:
+    abi = json.loads(f.read())
+
+methods = abi['methods']
+print("____________________________________________________________\n")
+print("🟦 Contract methods:")
+for m in methods:
+    for a in m['args']:
+        args = f"{a['type']}:{a['name']}"
+    rets = f"{m['returns']['type']}"
+    print(f"  🔹 {m['name']} ({args}) -> {rets}")
+
 
 '''
 ----------------------------------------------------------------------------------------------------    
-    PART3: Connect to the deployed app & use a method
+    PART4: Connect to the deployed app & use a method
 ----------------------------------------------------------------------------------------------------    
 '''
 
@@ -192,10 +237,9 @@ res = app_client.send.hello(
 # print_object_contents(res)
 
 
-
 '''
 ----------------------------------------------------------------------------------------------------    
-    PART4: Show results
+    PART5: Show results
 ----------------------------------------------------------------------------------------------------    
 '''
 

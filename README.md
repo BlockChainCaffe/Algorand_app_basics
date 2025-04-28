@@ -168,12 +168,19 @@ The program will perform the following actions in this order:
 2. connect to the chosen algorand network
 2.1 creates an algod client to interact with the node
 2.2 creates a algorand client to interact with the algorand blockchain
+
 <br>
-3. connect to the contract
-3.1 gets an application client via the algorand client
-3.2 creates a signing account inside the algorand client that can sign the transactions
-3.3 creates a transaction to call one application method
+3. inspects the contract (looking at the ABI) 
+3.1 check all methods available
+3.2 print inputs and output of the method
+
 <br>
-4. prints the results 
+4. connect to the contract
+4.1 gets an application client via the algorand client
+4.2 creates a signing account inside the algorand client that can sign the transactions
+4.3 creates a transaction to call one application method
+
+<br>
+5. prints the results 
 
 You can inspect and play with the code
