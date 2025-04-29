@@ -165,7 +165,6 @@ factory = factory_method(
     default_sender = signer.address,
     default_signer = signer
 )
-print(factory)
 
 print("🕓 Creating and Deplying contract...")
 start_time = timeit.default_timer()
@@ -183,6 +182,13 @@ print('🟢 Contract Deployed!')
 # wait_for_confirmation(algod_client, tx_id)
 elapsed = timeit.default_timer() - start_time
 print(f"✅ Deploy successful! ({elapsed})")
+
+## Store data into shelve
+with shelve.open("shelve.db") as db:
+    db['contract_name'] = contract_name
+    db['app_address'] = app_address
+    db['app_id'] = app_id
+print("🏁 Done !! ")
 
 print("____________________________________________________________\n")
 print(f"🔥 Application ID:{app_id}")
@@ -225,9 +231,3 @@ print(f"🔎 Transaction type: {fund.confirmation['txn']['txn']['type']}")
 print(f"✅ Funding confirmed! ({elapsed})")
 
 
-## Store data into shelve
-with shelve.open("shelve.db") as db:
-    db['contract_name'] = contract_name
-    db['app_address'] = app_address
-    db['app_id'] = app_id
-print("🏁 Done !! ")

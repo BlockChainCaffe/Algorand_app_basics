@@ -156,7 +156,12 @@ The deploy.py script will also fund the application account and show the results
 
 <br/>
 
-### Step6: Interaction
+### Step6: Basic Interaction
+
+> **NOTICE**
+> The interact.py script can only interact with the HelloWorld contract
+> See step 7 for a broather example
+
 It's time to interact with the contract you deployed !!
 Make sure you have the file `HelloWorldContract_client.py` created in step 4, because `interact.py` will get the needed classes and methods from it
 The program will perform the following actions in this order:
@@ -180,7 +185,21 @@ The program will perform the following actions in this order:
 4.2 creates a signing account inside the algorand client that can sign the transactions
 4.3 creates a transaction to call one application method
 
-<br>
+<br/>
 5. prints the results 
 
 You can inspect and play with the code
+
+<br/>
+
+### Step7: Advanced Interaction
+The `interactive.py` script is more flexible than the one used in the previous step. It creates an interactive TUI that allows to send transactions to the smart contract.
+It will start by connecting to a **deployed** instance of the contract, then propose a list of available methods to call
+
+To call a method simply use the format:
+
+```
+> METHOD_NAME PARAM1 PARAM2...
+```
+
+The result of the transaction will be printed out so that you can inspect it in LORA.
