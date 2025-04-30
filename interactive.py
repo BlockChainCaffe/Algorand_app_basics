@@ -5,6 +5,7 @@ import os
 import re
 import json
 import importlib
+import textwrap
 from   pathlib import Path
 
 from   algosdk.v2client.algod import AlgodClient
@@ -13,7 +14,8 @@ from   algokit_utils.algorand import AlgorandClient, \
                                     AlgoClientNetworkConfig
 from   algokit_utils import CommonAppCallParams, \
                             AlgoAmount, \
-                            SigningAccount
+                            SigningAccount, \
+                            PaymentParams
 
 from helpers import print_module_contents, \
                     print_object_contents, \
@@ -41,10 +43,29 @@ contract_name       = None
 app_id              = None
 client_object       = None      ## This will contain the classes created in the *.client.py module (AppClient and AppFactory)
 app_client          = None
+app_address         = None
 signer              = None      ## Account derived from private key that will sign transactions
 abi                 = None      ## ABI object of contract
 methods             = None      ## ABI methods
 
+# Generic transactions that can be sent regardless of smart contract methods
+generic_tx          = {
+    'payment' : {
+        'returns' : 'uint64',
+        'args': [
+            {
+                'name':'receiver',
+                'type':'address',
+                'desc':'The destionation account'
+            },
+            {
+                'name':'amount',
+                'type':'AlgoAmount',
+                'desc':'Amount to send'
+            }
+        ]
+    }
+}
 ## MBR
 # 1_000 for the 1 transactions
 required_balance    = 1_000
@@ -61,6 +82,7 @@ def _init():
     global algod_address
     global algod_token
     global app_id
+    global app_address
     global contract_name
     global algorand_client
     global lora_link
@@ -95,6 +117,12 @@ def _init():
             app_id = db['app_id']
         else:
             print("❌ Algorand token address not specified")
+            exit(2005)
+
+        if 'app_address' in db and db['app_address'] != None:
+            app_address = db['app_address']
+        else:
+            print("❌ Algorand app address not specified")
             exit(2005)
 
         if 'contract_name' in db and db['contract_name'] != None:
@@ -206,6 +234,8 @@ def _banner():
     print(f"🟢 Using token:       {algod_token}")
     print(f"🟢 Using contract:    {contract_name}")
     print(f"🟢 Using app id:      {app_id}")
+    print(f"🟢 Using app address: {app_address}")
+          
     try:
         account_info = algorand_client.account.get_information(address)
         print(f"💰 Account balance    {account_info.amount.micro_algo/1_000_000,} algos")
@@ -228,6 +258,8 @@ def _parse_methods():
         signature['returns'] = m['returns']['type']
         signature['args'] = m['args']
         parsed[m['name']] = signature
+        if 'desc' in m:
+            signature['desc'] = m['desc']
     methods = {**parsed}
 
 
@@ -241,28 +273,43 @@ def _show_methods():
             args = f"{a['type']}:{a['name']}"
         rets = f"{val['returns']}"
         print(f"  🔹 {key} ({args}) -> {rets}")
+        if 'desc' in val:
+            indent = ' '*(len(key)+4)
+            wrapper = textwrap.TextWrapper(initial_indent=indent, subsequent_indent=indent)
+            print(wrapper.fill(f"{val['desc']}"))
+        for a in val['args']:
+            if 'desc' in a:
+                print(f"    \t🔹 {a['type']}:{a['name']} {a['desc']}")
+        print()
     print("____________________________________________________________\n")
-
-
-
-
+    print("🟦 Generic tx:")  
+    print(f"  🔹 payment (receiver:address, amount:uint64) -> uint64")
+    print()
 
 ''' ___________________________________________________________________________
 
    Present the details of a performed transactions
 '''
 def _tx_output(res):
-    print("____________________________________________________________\n")
-    print(f"🟧 Abi return:      {res.abi_return}")
-    print(f"🟧 Confirmed round: {res.confirmation['confirmed-round']}")
+    print("____________________________________________________________\n")\
 
+    res_class_name = res.__class__.__name__
+
+    print(f"🟧 Return type:     {res_class_name}")
+    if hasattr(res, 'abi_return'):
+        print(f"🟧 Abi return:      {res.abi_return}")
+    if res_class_name == 'SendSingleTransactionResult' :
+        print(f"🟧 Amount:          {res.transactions[0].payment.amt}")
+    print(f"🟧 Confirmed round: {res.confirmation['confirmed-round']}")
     print(f"🟧 Transactions     {len(res.transactions)}")
     for n in range(len(res.transactions)):
         print(f" 🔶 Tx{n} tx_id:      {lora_link}transaction/{res.tx_ids[n]}")
-        print(f"  🔸  App ID:       {res.confirmations[n]['txn']['txn']['apid']}")
-        print(f"  🔸  Fee:          {res.confirmations[n]['txn']['txn']['fee']}")
-        print(f"  🔸  Sender:       {res.confirmations[n]['txn']['txn']['snd']}")   
+        print(f"  🔸  Sender:       {res.confirmations[n]['txn']['txn']['snd']}")
+        print(f"  🔸  Receiver:     {res.confirmations[n]['txn']['txn']['rcv']}")
         print(f"  🔸  Type:         {res.confirmations[n]['txn']['txn']['type']}")
+        print(f"  🔸  Fee:          {res.confirmations[n]['txn']['txn']['fee']}")
+        if 'apid' in res.confirmations[n]['txn']['txn']:
+            print(f"  🔸  App ID:       {res.confirmations[n]['txn']['txn']['apid']}")
         match (res.confirmations[n]['txn']['txn']['type']) :
             case 'appl':
                 print(f"  🔸  Note:         {res.transactions[0].application_call.note}")
@@ -275,7 +322,7 @@ def _tx_output(res):
 
    Makes a transaction
 '''
-def dotx(method_name, method_args) :
+def do_method_tx(method_name, method_args) :
     global address
 
     app_method = getattr(app_client.send, method_name)
@@ -303,8 +350,36 @@ def dotx(method_name, method_args) :
         input(f"🔻 Press any key to continue")
         return False
 
+
+def do_generic_tx(method_name, method_args) :
+    global address
+
+    try:
+        if method_name == 'payment' :
+            res = algorand_client.send.payment(
+                PaymentParams(
+                    sender =  address,
+                    receiver = method_args[0],
+                    amount = AlgoAmount(micro_algo=method_args[1])
+                )
+            )
+            return res
+    except Exception as e:
+        print(f"❌ {e.message or e}")
+        input(f"🔻 Press any key to continue")
+
+    return False
+
+
+def dotx(method_name, method_args):
+    if method_name in methods.keys():
+        return do_method_tx(method_name, method_args)
+    elif method_name in generic_tx.keys():
+        return do_generic_tx(method_name, method_args)
+    else:
+        return False
+
 def _input():
-    global methods
 
     print("Insert name of method and parameters to send application call")
     print("[Q] to exit]")
@@ -319,18 +394,26 @@ def _check_sel(sel):
 
     sel = re.sub(r'\s+', ' ', sel)
     sel = sel.split(" ")
-    # Check if method is valid
-    if not sel[0] in methods.keys():
-        print(f"🔺 {sel[0]} is not a valid method of the app")
-        input(f"🔻 Press any key to continue")
-        return False
-    # Check if supplied parameters are in the right number
-
-    if len(methods[sel[0]]['args'])+1 != len(sel):
+    # Check if is a valid method 
+    if sel[0] in methods.keys():
+        # Check if supplied parameters are in the right number
+        if len(methods[sel[0]]['args'])+1 == len(sel):
+            return sel
         print(f"🔺 Please supply right number of parameters: {len(methods[sel[0]]['args'])}")
         input(f"🔻 Press any key to continue")
         return False
-    return sel
+    elif sel[0] in generic_tx.keys():
+        if len(generic_tx[sel[0]]['args'])+1 == len(sel):
+            return sel
+        print(f"🔺 Please supply right number of parameters: {len(generic_tx[sel[0]]['args'])}")
+        input(f"🔻 Press any key to continue")
+        return False
+    else :
+        print(f"🔺 {sel[0]} is not a valid method/transaction")
+        input(f"🔻 Press any key to continue")
+        return False
+
+    
 
 def _menu():
     sel = True

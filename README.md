@@ -173,18 +173,15 @@ The program will perform the following actions in this order:
 2. connect to the chosen algorand network
 2.1 creates an algod client to interact with the node
 2.2 creates a algorand client to interact with the algorand blockchain
-
 <br>
 3. inspects the contract (looking at the ABI) 
 3.1 check all methods available
 3.2 print inputs and output of the method
-
 <br>
 4. connect to the contract
 4.1 gets an application client via the algorand client
 4.2 creates a signing account inside the algorand client that can sign the transactions
 4.3 creates a transaction to call one application method
-
 <br/>
 5. prints the results 
 
@@ -194,12 +191,13 @@ You can inspect and play with the code
 
 ### Step7: Advanced Interaction
 The `interactive.py` script is more flexible than the one used in the previous step. It creates an interactive TUI that allows to send transactions to the smart contract.
-It will start by connecting to a **deployed** instance of the contract, then propose a list of available methods to call
+It will start by connecting to a **deployed** instance of the contract, then propose a list of available methods to call. For each method the arguments name and types is whown, along with the return type. Also a description of the method is given, if available in the ABI. Similarly, if a description is provided for the parameters it is shown as well-
 
 To call a method simply use the format:
 
 ```
 > METHOD_NAME PARAM1 PARAM2...
 ```
+If the method name is wrong or non-existent an error wil be shown. Also the number of parameters inserted for the method must match.
 
-The result of the transaction will be printed out so that you can inspect it in LORA.
+The result of the transaction will be printed out so that you can inspect it in LORA. Id an error occurs during the transaction or transaction simulation, it will be shown.

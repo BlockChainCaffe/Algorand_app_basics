@@ -1,6 +1,11 @@
+
+
 from algopy import Account, ARC4Contract, BoxMap, Global, Txn, UInt64, gtxn, itxn
 from algopy.arc4 import abimethod
 
+"""
+see https://github.com/algorand-devrel/algorand-python-workshop/tree/main
+"""
 
 class PersonalBank(ARC4Contract):
 
