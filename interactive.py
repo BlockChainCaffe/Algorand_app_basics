@@ -379,8 +379,8 @@ def dotx(method_name, method_args):
     else:
         return False
 
-def _input():
 
+def _input():
     print("Insert name of method and parameters to send application call")
     print("[Q] to exit]")
     sel = input("▶ ")
