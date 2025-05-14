@@ -3,6 +3,7 @@
 import shelve
 import timeit
 import os
+import json
 import importlib
 from   pathlib import Path
 from   base64 import b64decode
@@ -36,6 +37,8 @@ client_object           = None      # Client for the smart contract
 ## Results (to be saved in shelves.db)
 app_id                  = None
 app_address             = None
+
+abi                     = None
 
 ## MBR
 # 100_000 for the creator MBR,
@@ -75,6 +78,10 @@ with shelve.open("shelve.db") as db:
         print("❌ Algorand token address not specified")
         exit(1002)
 
+    if 'contract_name' in db:
+        contract_name = db['contract_name']
+        print("🟢 Using contract name: ", contract_name)
+
     if 'lora_link' in db:
         lora_link = db['lora_link']
 
@@ -84,6 +91,41 @@ if address != signer.address:
     print("❌ Private key and address dont' match")
     exit(1003)
 
+
+## Get ABI
+abi = None
+try:
+    directory = Path('./')
+    abi_file = list(directory.glob(contract_name+'.arc56.json'))
+    if len(abi_file) != 1:
+        print("❌ Exaclty 1 arc56 ABI file expected ! Quitting")
+        exit(2008)
+    else:
+        abi_file = list(map(lambda x: str(x), abi_file))[0]
+except Exception as e:
+    print("💩 ", e)
+    print("❌ Error finding client file! Quitting")
+    exit(2009)
+
+with open(abi_file) as f:
+    abi = json.loads(f.read())
+
+
+## Compute MBR due to boxes use
+box_mbr = 0
+try :
+    boxes = abi['state']['keys']['box']
+    for bx in boxes.keys():
+        box_mbr += 2500
+        box_mbr += 400 * len(bx)
+        box_mbr += 400 * 1024
+        print("📦 Extimate Box MBR : ", box_mbr)
+except Exception as e:
+    print("💩 ", e)
+    print("❌ Error computing box(es) MBR")
+    exit(2012)
+
+required_balance += box_mbr
 
 '''
 ----------------------------------------------------------------------------------------------------    
@@ -129,27 +171,34 @@ if  (account_info.amount.micro_algo - account_info.min_balance.micro_algo)< requ
 ----------------------------------------------------------------------------------------------------    
 '''
 
-## Get client module file and contract name
-try:
-    directory = Path('./')
-    client_module = list(directory.glob('*_client.py'))
-    client_module = list(map(lambda x: str(x), client_module))
-    if len(client_module) != 1:
-        print("❌ Exaclty 1 Client file expected ! Quitting")
-        exit(2008)
-    else:
-        client_module = client_module[0]
-        contract_name = client_module.replace('_client.py','')
-except Exception as e:
-    print("💩 ", e)
-    print("❌ Error finding client file! Quitting")
-
-## Check that the contract client was created using alogkit-client-generator
-if os.path.exists(client_module) != True:
-    print("❌ Could not locate contract client! Quitting")
-    exit(2006)
+if (contract_name) :
+    client_module = contract_name+"_client"
+    if os.path.exists(client_module+'.py') != True:
+        print("❌ Could not locate contract client! Quitting")
+        exit(2006)
+    client_object = importlib.import_module(contract_name+"_client")
 else:
-    client_object = importlib.import_module(client_module.replace('.py',''))
+    ## Get client module file and contract name
+    try:
+        directory = Path('./')
+        client_module = list(directory.glob('*_client.py'))
+        client_module = list(map(lambda x: str(x), client_module))
+        if len(client_module) != 1:
+            print("❌ Exaclty 1 Client file expected ! Quitting")
+            exit(2008)
+        else:
+            client_module = client_module[0]
+            contract_name = client_module.replace('_client.py','')
+    except Exception as e:
+        print("💩 ", e)
+        print("❌ Error finding client file! Quitting")
+
+    ## Check that the contract client was created using alogkit-client-generator
+    if os.path.exists(client_module) != True:
+        print("❌ Could not locate contract client! Quitting")
+        exit(2006)
+    else:
+        client_object = importlib.import_module(client_module.replace('.py',''))
 
 
 '''
@@ -204,7 +253,10 @@ print("____________________________________________________________\n")
 ----------------------------------------------------------------------------------------------------    
 '''
 
-## Fund appliction address
+## Compute the extra cost due to boxes
+amount = 100_000    # for the contract itsefl
+amount += box_mbr   # for the box storage
+
 print("🕓 Funding Application account...")
 
 start_time = timeit.default_timer()
@@ -213,7 +265,7 @@ try:
         params=PaymentParams(
             sender=address,
             signer=signer,
-            amount=AlgoAmount(algo=0.1),
+            amount=AlgoAmount(micro_algo=amount),
             receiver=app_client.app_address,
         )
     )

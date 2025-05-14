@@ -61,37 +61,21 @@ class HelloWorldContract(ARC4Contract):
         return "Hello, "+name
 ```
 
-2. compile the contract using `algokit compile` requesting an ARC56 extended ABI output
+2. compile the contract using the `compile.sh` script 
 
 ```
-❯ algokit compile python contract.py --output-arc56
-info: Writing HelloWorldContract.arc56.json
-info: Writing HelloWorldContract.approval.teal
-info: Writing HelloWorldContract.clear.teal
-info: Writing HelloWorldContract.approval.puya.map
-info: Writing HelloWorldContract.clear.puya.map
+❯ compile.py contract.py
 ```
 
 3. You will obtain the following files:
 - HelloWorldContract.arc\*.json : extended contract ABI files in arc32 and 56 format
 - HelloWorldContract.\*.teal: teal intermediary artifacts
 - HelloWorldContract.\*.puya.map: puya map intermediary artifacts
+- HelloWorldContract_client.py: python client classes
 
 Also `*.approval.*` and `*.clear.*` files refer to the approval and clear state code for the contract where:
 - **approval** contract is the main contract that implements all the logic
 - **clear** contract is the code that the user executes when opting-out of a contract
-
-4. Generate the client
-
-```
-❯ algokitgen-py -a HelloWorldContract.arc56.json -o HelloWorldContract_client.py
-```
-or
-```
-❯ algokit generate client ./HelloWorldContract.arc56.json --output HelloWorldContract_client.py
-```
-
-This will output the `HelloWorldContract_client.py` file that contains a set of classes needed to interact with the contract
 
 > **Notice**: 
 >The client module must end with **_client.py** and not .client.py
@@ -190,14 +174,82 @@ You can inspect and play with the code
 <br/>
 
 ### Step7: Advanced Interaction
-The `interactive.py` script is more flexible than the one used in the previous step. It creates an interactive TUI that allows to send transactions to the smart contract.
-It will start by connecting to a **deployed** instance of the contract, then propose a list of available methods to call. For each method the arguments name and types is whown, along with the return type. Also a description of the method is given, if available in the ABI. Similarly, if a description is provided for the parameters it is shown as well-
+The `interactive.py` script is more flexible than the one used in the previous step. It creates an interactive CLI that allows to send transactions to the smart contract and more.
+It will start by connecting to the selected network and a **deployed** instance of the contract.
 
-To call a method simply use the format:
+A panel with be shown with the folowing info separated by horizontal lines:
+1) network and account info:
+    - used network and endpoint
+    - used account address and private key
+    - account balance and MBR
+    - apps the account has created
+    - apps the account has opted in
+        - for each of those the local storage key:values are displayed
+2) the contract it is connected to
+    - contract name as per the ABI, app id and app account address
+        - box storage: each box key and content (bytes)
+        - global storage (glb): each key and value
+        - local storage (lcl) of the user's account: each key and value
+    - the contract ARC4 methods where for each method is shown:
+        - required input parameters and return type
+        - list of on_completion possible values [1..6]
+        - a list of create parameters
+3) Generic transactions
+    - just payments at the moment
+4) Additional transaction parameters
+    - on_complete: add `on_compelte:0` ... `on_complete:5` to add this feature the the transaction. This is usefull to opt-in using a method that has `[oc=1]`
+
+Example: 
 
 ```
-> METHOD_NAME PARAM1 PARAM2...
-```
-If the method name is wrong or non-existent an error wil be shown. Also the number of parameters inserted for the method must match.
+🚀 Using net:         http://localhost:4001     Token: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+🔑 Using address:     N2BM7FMNFGZACFDRGYODAVSLVLJVSGT3T7M3Q37QWRJKKGHJGGNDEU7TRM
+   Using private key: U28djzPz2JGyxCeLMbrMBHsF6M805NleYepQRfR+E3Jugs+VjSmyARRxNhwwVkuq01kae5/ZuG/wtFKlGOkxmg==
+💰 Account balance    244.933 algos     (MBR: 0.614 algos)
+🔧 Apps created       [1003, 1036]
+👍 Apps opted in:
+                      1003 : st_local = {'bytes': '', 'type': 2, 'uint': 9876}
+                      1036 : st_local = {'bytes': '', 'type': 2, 'uint': 90987}
+___________________________________________________________________________________________________
+🔵 Using contract:    "Storage" (app id: 1036, app address: OPRKZ57H6B4OFHNUMFBH5ML77PH2XEVXTGI6I6VCIUE5FV3PRDHN4L7UH4)
+  🔹                  box st_box: b'\x00\x00\x00\x00\x00\x00\x00\x01'
+  🔹                  gbl st_global: 0
+  🔹                  lcl st_local: 90987
+🟦 Contract methods:
+  🔹 set_b (uint64:data) -> uint64
+  🔹 set_g (uint64:data) -> uint64
+  🔹 set_l (uint64:data) -> uint64
+  🔹 get_b () -> uint64
+  🔹 get_g () -> uint64
+  🔹 get_l () -> uint64
+  🔹 get_version () -> uint64   [oc=1]
+___________________________________________________________________________________________________
+🟦 Generic tx:
+  🔹 payment (receiver:address, amount:uint64) -> uint64
+___________________________________________________________________________________________________
+🟦 Txn Parameters
+  🔹 on_complete:<NoOp=0/OptIn/CloseOut/Clearstate/UpdateApplication/DeleteApplication=5>
 
-The result of the transaction will be printed out so that you can inspect it in LORA. Id an error occurs during the transaction or transaction simulation, it will be shown.
+Insert name of method and parameters to send application call
+[Q] to exit
+```
+
+In this example you could type different commands:
+
+1) **Opt-in to the contract**: you need to use the get_version method because it's the only method that has `[oc=1]` in the list
+
+```
+get_version on_complete:1
+```
+
+2) Call **get methods**: all the get_* methods have no parameters, so unless you need to add some `on_complete` extra params, just type the name of the method like:
+```
+get_b
+```
+
+3) Call **set methods**: the set_* methods accept a UInt64 parameter, so we need to add it like:
+```
+set_b 999
+```
+
+if the method requires more parameters in the call just add them separated by spaces

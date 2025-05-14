@@ -6,13 +6,15 @@ import re
 import json
 import importlib
 import textwrap
+import shutil
+import base64
 from   pathlib import Path
 
-from   algosdk.v2client.algod import AlgodClient
 from   algokit_utils.algorand import AlgorandClient, \
                                     AlgoClientConfigs, \
                                     AlgoClientNetworkConfig
 from   algokit_utils import CommonAppCallParams, \
+                            SendParams, \
                             AlgoAmount, \
                             SigningAccount, \
                             PaymentParams
@@ -27,6 +29,8 @@ from helpers import print_module_contents, \
 ----------------------------------------------------------------------------------------------------    
 '''
 
+## Interface
+window_width        = shutil.get_terminal_size().columns
 
 ## Fundamental variables 
 private_key         = None
@@ -64,15 +68,42 @@ generic_tx          = {
                 'desc':'Amount to send'
             }
         ]
-    }
+    },
 }
 ## MBR
 # 1_000 for the 1 transactions
 required_balance    = 1_000
 
+'''
+----------------------------------------------------------------------------------------------------    
+    Helper functions
+----------------------------------------------------------------------------------------------------    
+'''
 
-''' ___________________________________________________________________________
+"""
+    Just draw a line as wide as the console
+"""
+def _line():
+    print(f"_"*window_width)
 
+
+"""
+    Clear the screen
+"""
+def cls():    # Clear console based on the operating system
+    if os.name == 'nt':  # For Windows
+        os.system('cls')
+    else:  # For Unix/Linux/Mac
+        os.system('clear')
+
+
+'''
+----------------------------------------------------------------------------------------------------    
+    Main functions
+----------------------------------------------------------------------------------------------------    
+'''
+
+'''
     Get all initial values from shelves.db
     and perform some basic checks
 '''
@@ -133,7 +164,6 @@ def _init():
 
         if 'lora_link' in db:
             lora_link = db['lora_link']
-
 
     ## Get client module file and contract name
     try:
@@ -213,11 +243,10 @@ def _init():
 
 
 
-''' ___________________________________________________________________________
-
-    Print header banner with basic info
 '''
-def _banner():
+    Print header account info
+'''
+def _account_info():
     global private_key
     global address
     global algod_address
@@ -226,29 +255,41 @@ def _banner():
     global contract_name
     global algorand_client
 
+    account_info = algorand_client.account.get_information(address)
 
     cls()
-    print(f"🟢 Using private key: {private_key}")
-    print(f"🟢 Using address:     {address}")
-    print(f"🟢 Using net:         {algod_address}")
-    print(f"🟢 Using token:       {algod_token}")
-    print(f"🟢 Using contract:    {contract_name}")
-    print(f"🟢 Using app id:      {app_id}")
-    print(f"🟢 Using app address: {app_address}")
-          
+    print(f"🚀 Using net:         {algod_address}\tToken: {algod_token}")
+    print(f"🔑 Using address:     {address}")
+    print(f"   Using private key: {private_key}")
+    print(f"💰 Account balance    {account_info.amount.micro_algo/1_000_000} algos\t(MBR: {account_info.min_balance.micro_algo /1_000_000} algos)")
+    if  (account_info.amount.micro_algo - account_info.min_balance.micro_algo)< required_balance:
+        print("🔴 You are too poor! ")
     try:
-        account_info = algorand_client.account.get_information(address)
-        print(f"💰 Account balance    {account_info.amount.micro_algo/1_000_000,} algos")
-        print(f"🏦 Minimum balance    {account_info.min_balance.micro_algo /1_000_000} algos")
+        if account_info.created_apps :
+            created = list(map(lambda x : x['id'], account_info.created_apps))
+            print(f"🔧 Apps created       {created}")
+        
+        if account_info.total_apps_opted_in > 0 :
+            opted = []
+            print(f"👍 Apps opted in:")
+            for o in range(account_info.total_apps_opted_in):
+                opted.append(account_info.apps_local_state[o]['id'])
+                if 'key-value' in account_info.apps_local_state[o] :
+                    for kv in account_info.apps_local_state[o]['key-value']:
+                        key = decoded_bytes = base64.b64decode(kv['key']).decode("utf-8")
+                        print(f"                      {account_info.apps_local_state[o]['id']} : {key} = {kv['value']}")
+                else:
+                    print(f"                      {account_info.apps_local_state[o]['id']}")
     except Exception as e:
         print("💩 ", e)
         print("❌ Could not get address info! Quitting")
         exit(1006)
-    if  (account_info.amount.micro_algo - account_info.min_balance.micro_algo)< required_balance:
-        print("💸 You are too poor! Quitting")
-        exit(1007)
 
 
+"""
+    Gets the methods of the contract (from the ARC56.json file) and
+    parse them into a dictionary for later convenience
+"""
 def _parse_methods():
     global methods
 
@@ -257,22 +298,64 @@ def _parse_methods():
         signature = {}
         signature['returns'] = m['returns']['type']
         signature['args'] = m['args']
+        signature['actions'] = m['actions']
         parsed[m['name']] = signature
         if 'desc' in m:
             signature['desc'] = m['desc']
     methods = {**parsed}
 
 
+"""
+    Get the on_completed and create parameters of the method call
+    and output a short string to present them to the user
+    Please note that just OptIn is taken care of ATM
+"""
+def _parse_actions(act):
+    oc = ''
+    cr = ''
+    if "OptIn" in act['call']:
+        oc+='1'
+    
+    if len(cr) :
+        cr = 'cr='+cr+'/'
+    if len(oc) :
+        oc = 'oc='+oc
+    return f"[{cr}{oc}]" if (len(cr)+len(oc)>0) else ''
+
+
+"""
+    Query the app for it's details
+    Note that this is done solely via the algorand_client, so this could be done
+    with any app provided it's id
+"""
+def _show_app_details():
+    _line()
+    print(f"🔵 Using contract:    \"{contract_name}\"\t(app id: {app_id}, app address: {app_address})")
+    box_names = algorand_client.app.get_box_names(app_id)
+    for box in box_names:
+        print(f"  🔹                  box {box.name}: {algorand_client.app.get_box_value(app_id, box.name)}")
+    gs = algorand_client.app.get_global_state(app_id)
+    for g in gs.keys():
+        print(f"  🔹                  gbl {g}: {gs[g].value }")
+    ls = algorand_client.app.get_local_state(app_id, address)
+    for l in ls.keys():
+        print(f"  🔹                  lcl {l}: {ls[l].value }")
+
+
+"""
+    Display the app methods and it's parameters
+"""
 def _show_methods():
     global methods
-    print("____________________________________________________________\n")
-    print("🟦 Contract methods:")
+    _line
+    print(f"🟦 Contract methods:")
     for key, val in methods.items():
         args = '' 
         for a in val['args']:
             args = f"{a['type']}:{a['name']}"
         rets = f"{val['returns']}"
-        print(f"  🔹 {key} ({args}) -> {rets}")
+        act = _parse_actions(val['actions'])
+        print(f"  🔹 {key} ({args}) -> {rets}\t{act}")
         if 'desc' in val:
             indent = ' '*(len(key)+4)
             wrapper = textwrap.TextWrapper(initial_indent=indent, subsequent_indent=indent)
@@ -280,18 +363,23 @@ def _show_methods():
         for a in val['args']:
             if 'desc' in a:
                 print(f"    \t🔹 {a['type']}:{a['name']} {a['desc']}")
-        print()
-    print("____________________________________________________________\n")
+    _line()
     print("🟦 Generic tx:")  
     print(f"  🔹 payment (receiver:address, amount:uint64) -> uint64")
-    print()
+    _line()
+    print("🟦 Txn Parameters")  
+    print(f"  🔹 on_complete:<NoOp=0/OptIn/CloseOut/Clearstate/UpdateApplication/DeleteApplication=5>")
 
-''' ___________________________________________________________________________
 
+
+'''
    Present the details of a performed transactions
+   Note: Algorand is very peculiar with all the transaction types
+   Not all transactions will return the same data with the same object etc
+   This function might fail because some parameters are not present
 '''
 def _tx_output(res):
-    print("____________________________________________________________\n")\
+    _line()
 
     res_class_name = res.__class__.__name__
 
@@ -300,12 +388,14 @@ def _tx_output(res):
         print(f"🟧 Abi return:      {res.abi_return}")
     if res_class_name == 'SendSingleTransactionResult' :
         print(f"🟧 Amount:          {res.transactions[0].payment.amt}")
-    print(f"🟧 Confirmed round: {res.confirmation['confirmed-round']}")
+    if hasattr(res,'confirmation') and hasattr(res.confirmation, 'confirmed-round'):
+        print(f"🟧 Confirmed round: {res.confirmation['confirmed-round']}")
     print(f"🟧 Transactions     {len(res.transactions)}")
     for n in range(len(res.transactions)):
         print(f" 🔶 Tx{n} tx_id:      {lora_link}transaction/{res.tx_ids[n]}")
         print(f"  🔸  Sender:       {res.confirmations[n]['txn']['txn']['snd']}")
-        print(f"  🔸  Receiver:     {res.confirmations[n]['txn']['txn']['rcv']}")
+        if hasattr(res.confirmations[n]['txn']['txn'], 'rcv'):
+            print(f"  🔸  Receiver:     {res.confirmations[n]['txn']['txn']['rcv']}")
         print(f"  🔸  Type:         {res.confirmations[n]['txn']['txn']['type']}")
         print(f"  🔸  Fee:          {res.confirmations[n]['txn']['txn']['fee']}")
         if 'apid' in res.confirmations[n]['txn']['txn']:
@@ -314,49 +404,85 @@ def _tx_output(res):
             case 'appl':
                 print(f"  🔸  Note:         {res.transactions[0].application_call.note}")
 
-    print("____________________________________________________________\n")
+    print("\n")
     input(f"✅ Press any key to continue")
 
 
-''' ___________________________________________________________________________
 
-   Makes a transaction
 '''
-def do_method_tx(method_name, method_args) :
+   Makes a transaction
+   Create and send the transaction to the application method
+'''
+def do_method_tx(sc_method, method_args, txn_args) :
     global address
+    global methods
 
-    app_method = getattr(app_client.send, method_name)
-    ## Send the transaction to the `hello` method of the app
+    app_method = getattr(app_client.send, sc_method)
 
-    # This is the parameter sent to the app call
+    ## Get last blockchain round (See later)
+    last_round = algorand_client.client.algod.status()['last-round']
+
+    ## Turn txn_args into a dictionary to ease the creation of CommonAppCallParams class object
+    cacp = {}
+    cacp['sender'] = address 
+    cacp['extra_fee'] =AlgoAmount(micro_algo=0)
+    ## To avoid the "transaction is already in ledger" error we tweak the validity rounds
+    ## parameter so to have always new transactions
+    cacp['first_valid_round'] = last_round
+    cacp['last_valid_round'] = last_round +1000
+
+
+    ## Parse the transactions parameters like
+    ## ex:  string "on_complete:1" becomes dict {'on_complete':1}
+    ##      and gets later passed to the ApplicationCall
+    for txn_a in txn_args:
+        arg_key = re.sub(':.*$','', txn_a)
+        arg_value = re.sub('^.*:','', txn_a)
+        if arg_value.isnumeric():
+            arg_value = int(arg_value)
+        cacp[arg_key]=arg_value
+
+    # These are the parameter sent to the app call
     app_call_params={
-        'params' : CommonAppCallParams(
-            sender= address, 
-            extra_fee=AlgoAmount(micro_algo=0)
-        )
+        'params' : CommonAppCallParams(**cacp),
+        # From algokit-utils >= 4.0.0 the followin line will not be necessary
+        'send_params' : SendParams(populate_app_call_resources=True),
     }
 
-    # Conditionally add the method_args to app call if any
+    ## Conditionally add the method_args to app call if any
     if len(method_args) > 0 :
-        # The client allows to use a tuple of strings !!
+        # Convert input to proper type
+        args = methods[sc_method]['args']
+        for n in range(len(method_args)) :
+            # which destination type?
+            match args[n]['type']:
+                case 'uint64':
+                    ## If parameter is uint64 turn string -> int
+                    method_args[n] = int(method_args[n])
+
+    ## The client allows to pass the args as a tuple of strings
+    if len(method_args) > 0:
         app_call_params['args'] = tuple(method_args)
 
-    # Use the spread operator to expand the object as function parameters
+    ## Send the transaction
     try :
+        ## Use the spread operator to expand the object as function parameters
         res = app_method(**app_call_params)
         return res
     except Exception as e:
-        print(f"❌ {e.message}")
+        print(f"❌ {e}")
         input(f"🔻 Press any key to continue")
         return False
 
 
-def do_generic_tx(method_name, method_args) :
+"""
+    Perform a generic transaction (ie: non related to the application)
+"""
+def do_generic_tx(sc_method, method_args, txn_args) :
     global address
-
     try:
-        if method_name == 'payment' :
-            res = algorand_client.send.payment(
+        if sc_method == 'payment' :
+            res = algorand_client.send.payment (
                 PaymentParams(
                     sender =  address,
                     receiver = method_args[0],
@@ -367,79 +493,122 @@ def do_generic_tx(method_name, method_args) :
     except Exception as e:
         print(f"❌ {e.message or e}")
         input(f"🔻 Press any key to continue")
-
     return False
 
 
-def dotx(method_name, method_args):
-    if method_name in methods.keys():
-        return do_method_tx(method_name, method_args)
-    elif method_name in generic_tx.keys():
-        return do_generic_tx(method_name, method_args)
+"""
+    Get the transaction and send it to the proper handler
+"""
+def dotx(sc_method, method_args, txn_args):
+    if sc_method in methods.keys():
+        return do_method_tx(sc_method, method_args, txn_args)
+    elif sc_method in generic_tx.keys():
+        return do_generic_tx(sc_method, method_args, txn_args)
     else:
         return False
 
 
+"""
+    Check the user's input
+    If it's a method call, verify the number of parameters matches the one of the ABI
+"""
+def _check_sel(sc_method, method_args, txn_args):
+    global methods
+
+    # Check if is a valid method 
+    if sc_method in methods.keys():
+        # Check if supplied parameters are in the right number
+        if len(methods[sc_method]['args']) != len(method_args):
+            print(f"🔺 Please supply right number of parameters: {len(methods[sc_method]['args'])}")
+            input(f"🔻 Press any key to continue")
+            return False
+    elif sc_method in generic_tx.keys():
+        if len(generic_tx[sc_method]['args']) != len(method_args):
+            print(f"🔺 Please supply right number of parameters: {len(generic_tx[sc_method]['args'])}")
+            input(f"🔻 Press any key to continue")
+            return False
+    else :
+        print(f"🔺 {sc_method} is not a valid method/transaction")
+        input(f"🔻 Press any key to continue")
+        return False
+
+    # Check Txn_params
+    allowed_params = ['on_complete']
+    for txn_a in txn_args:
+        arg_key = re.sub(':.*$','', txn_a)
+        arg_value = re.sub('^.*:','', txn_a)
+        if not arg_key in allowed_params:
+            print(f"🔺 {arg_key} is not a valid transaction parameterset_l ")
+            input(f"🔻 Press any key to continue")
+            return False
+        
+        if arg_key == 'on_complete':
+            ## Value must be 0..5
+            arg_value = int(arg_value)
+            if arg_value < 0 or arg_value > 5 :
+                print(f"🔺 {arg_value} is not a valid integer in 0..5 ")
+                input(f"🔻 Press any key to continue")
+                return False
+
+    return True
+    
+
+"""
+    Get input from user
+"""
 def _input():
-    print("Insert name of method and parameters to send application call")
-    print("[Q] to exit]")
+    print("\nInsert name of method and parameters to send application call")
+    print("[Q] to exit")
     sel = input("▶ ")
     if sel == 'Q' or sel == 'q':
         return False
     return sel
 
 
-def _check_sel(sel):
-    global methods
-
-    sel = re.sub(r'\s+', ' ', sel)
-    sel = sel.split(" ")
-    # Check if is a valid method 
-    if sel[0] in methods.keys():
-        # Check if supplied parameters are in the right number
-        if len(methods[sel[0]]['args'])+1 == len(sel):
-            return sel
-        print(f"🔺 Please supply right number of parameters: {len(methods[sel[0]]['args'])}")
-        input(f"🔻 Press any key to continue")
-        return False
-    elif sel[0] in generic_tx.keys():
-        if len(generic_tx[sel[0]]['args'])+1 == len(sel):
-            return sel
-        print(f"🔺 Please supply right number of parameters: {len(generic_tx[sel[0]]['args'])}")
-        input(f"🔻 Press any key to continue")
-        return False
-    else :
-        print(f"🔺 {sel[0]} is not a valid method/transaction")
-        input(f"🔻 Press any key to continue")
-        return False
-
-    
-
-def _menu():
+"""
+    Main loop
+    - Show account_info, app details, methods
+    - get user input
+    - parse it
+"""
+def _loop():
     sel = True
     while sel != False:
-        _banner()
+        _account_info()
+        _show_app_details()
         _show_methods()
         sel = _input()
         if not sel:
             continue
-        call = _check_sel(sel)
+
+        ## Split the input in it's parts: method called, method arguments, optional tx parameters
+        sel = re.sub(r'\s+', ' ', sel)
+        sel = sel.split(" ")    
+        sc_method = sel[0]
+        method_args = list(filter(lambda a : False if ':' in a else True, sel[1:]))
+        txn_args = list(filter (lambda a : True if ':' in a else False, sel[1:]))
+
+        ## Check the input
+        call = _check_sel(sc_method, method_args, txn_args)
         if call == False:
             continue
-        res = dotx(call[0], call[1:])
+
+        ## Handle the transaction
+        res = dotx(sc_method, method_args, txn_args)
         if res : 
+            ## Display result
             _tx_output(res)
 
 
-''' ___________________________________________________________________________
+"""________________________________________________________________________
 
    MAIN
-'''
+"""
 
 def main():
     _init()
     _parse_methods()
-    _menu()
+    _loop()
 
 
 if __name__ == "__main__": 
