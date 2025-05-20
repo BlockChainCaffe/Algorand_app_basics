@@ -11,13 +11,23 @@
     using the other applications of this set and that the right values of the 
     app to test are in the shelve.db file.
 
-    The first 270 lines or so take care of importing the values in a SharedState
-    object that will be handled by the fixtures
+    The first 400 lines or so take care of importing the values in a SharedState
+    object that will be handled by the fixtures and implements some helper 
+    functions
     Afther that the code needs to be customized to fit the app you are testing
 
-    For your convenience the `application_call` function is provided. You need 
-    to pass it the SharedState object, name of the method, optional method
-    parameters, optional transaction parameters (on_complete etc)
+    For your convenience some funcitons are provided:
+    - `application_call`: helps you submitting a transaction
+        You need to pass it the SharedState object, name of the method, optional 
+        method parameters, optional transaction parameters (on_complete etc)
+    - `dump_state`      : dumps the SharedState
+        You can provide an extra key parameter if you want to dump just that key
+    - `new_signer`      : adds a new signer to the SharedState and optionally
+        funds it using funds from the mail address. The new signer is given a
+        name and can later be used to send transactions via `application_call`
+    - `signer_balance`  : returns the balance (in microalgos) of a signer
+        signer must have been previously created with `new_signer`
+    - `fund_signer`     : gives some funds to the previously created signer
 
     Copy this file and modify the copy accordingly to your needs, then run it 
     with:
@@ -25,19 +35,21 @@
         pytest -v -s test_XXX.py
 '''
 
-import shelve
-import pytest
-import os
-import re
-import json
-import importlib
-import base64
-from   pathlib import Path
+import  shelve
+import  pytest
+import  os
+import  re
+import  json
+from    pprint import pprint
+import  importlib
+import  base64
+from    pathlib import Path
 
-from   algokit_utils.algorand import AlgorandClient, \
-                                    AlgoClientConfigs, \
-                                    AlgoClientNetworkConfig
-from   algokit_utils import CommonAppCallParams, \
+from    algokit_utils.algorand import AlgorandClient, \
+                            AlgoClientConfigs, \
+                            AlgoClientNetworkConfig
+from    algokit_utils import CommonAppCallParams, \
+                            PaymentParams, \
                             SendParams, \
                             AlgoAmount, \
                             SigningAccount
@@ -153,6 +165,7 @@ def init(shared_state):
     signer = SigningAccount(private_key=shared_state.get('private_key'))
     algorand_client.account.set_signer_from_account(signer)
     shared_state.set('algorand_client', algorand_client)
+    shared_state.set('signer', signer)
 
     print(shared_state)
 
@@ -231,14 +244,52 @@ def app_info(shared_state):
 ----------------------------------------------------------------------------------------------------    
 '''
 
-'''
+
+"""
+    Dumps the content of SharedState
+"""
+def dump_state(shared_state, key=None):
+    data = shared_state.get(key) if key else shared_state.data
+    print()
+    pprint(data, indent=4, sort_dicts=True)
+
+
+"""
+    Dumps the balance of one of the signers
+"""
+def signer_balance(shared_state, name=None):
+    
+    signer_address = shared_state.get('address')
+    if name == None:
+        pass
+    else:
+        signers = shared_state.get('signers')
+        if signers == None:
+            print("No signers defined")
+            return False
+        if not name in signers:
+            print(f"No such signer: {name}")
+            return False
+        signer_address = signers[name]['address']
+
+    algorand_client = shared_state.get('algorand_client')
+    account_info = algorand_client.account.get_information(signer_address)
+    balance = account_info.amount.micro_algo
+    return(balance)
+
+
+"""
    Makes a transaction
    Create and send the transaction to the application method
-'''
-def application_call(shared_state, sc_method, method_args = [], txn_args = []) :
+"""
+def application_call(shared_state, sc_method, method_args = [], *, txn_args = [], signer = None) :
     address = shared_state.get('address')
     app_client = shared_state.get('app_client')
     algorand_client = shared_state.get('algorand_client')
+
+    ## Use a non-default signer if specified
+    if signer:
+        address = shared_state.get('signers')[signer]['address']
 
     app_method = getattr(app_client.send, sc_method)
 
@@ -282,6 +333,61 @@ def application_call(shared_state, sc_method, method_args = [], txn_args = []) :
     return res
 
 
+"""
+    Adds a signer to the SharedState
+    The signer has a name, can then later be used to sign transactions
+    Optionaly funds the created account if balance is lower than requested
+    `balance` is expressed in microalgos
+"""
+def new_signer(shared_state, name, *, balance=0):
+    # ensure signer is not already present in SharedState
+    algorand_client = shared_state.get('algorand_client')
+    signers = shared_state.get('signers')
+    if signers == None:
+        signers = {}
+    if not name in signers:
+        # create a random signer
+        signer = algorand_client.account.random()
+        # store into SharedState
+        signers[name] = {
+            'private_key' : signer.private_key,
+            'address' : signer.address
+        }
+        shared_state.set('signers', signers)
+
+    # fund account from primary account
+    new_address = signers[name]['address']
+    account_info = algorand_client.account.get_information(new_address)
+    has_balance = account_info.amount.micro_algo
+    if has_balance < balance:
+        top_up = balance - has_balance
+        fund_signer(shared_state, name, top_up)
+    return True
+
+    
+
+"""
+    Give some funds to a signer
+    The funds are taken from the mail signer account
+"""
+def fund_signer(shared_state, signer, amount):
+    pot = signer_balance(shared_state)
+    if amount > pot:
+        print(f"Main signer is too poor for that {pot} < {amount}" )
+        return False
+    
+    to_address = signers = shared_state.get('signers')[signer]['address']
+    algorand_client = shared_state.get('algorand_client')
+    fund = algorand_client.send.payment(
+        params=PaymentParams(
+            sender=shared_state.get('address'),
+            signer=shared_state.get('signer'),
+            amount=AlgoAmount(micro_algo=amount),
+            receiver=to_address,
+        )
+    )
+
+
 
 '''
 ----------------------------------------------------------------------------------------------------    
@@ -292,9 +398,107 @@ def application_call(shared_state, sc_method, method_args = [], txn_args = []) :
 ## Fake initial test, just to test the fixtures and populate the shared_state
 def test_go(shared_state, account_info, app_info):
     assert True
+    dump_state(shared_state, 'signers')
+
+## Creates a couple of accounts
+def test_create_account(shared_state):
+    new_signer(shared_state, 'alice', balance = 1000999)
+    new_signer(shared_state, 'jack')
+    dump_state(shared_state, 'signers')
+    print(f"alice's balance: {signer_balance(shared_state, 'alice')}")
+    print(f"jack's balance: {signer_balance(shared_state, 'jack')}")
+    assert True
 
 
 ## Call the `get_version` method and compare abi return
 def test_storage(shared_state):    
-    res = application_call(shared_state, 'get_version')
+    res = application_call(shared_state, 'get_version', signer='alice')
     assert res.abi_return == 2
+
+
+## Alice opts in into contract
+def test_optin(shared_state):
+    res = application_call(
+        shared_state,
+        'get_version',
+        signer='alice',
+        txn_args=['on_complete:1']
+    )
+    # pprint(res)
+    assert res.abi_return == 2
+
+
+
+## Jack opts in, stores something in local storate, reads value
+def test_local_all(shared_state):
+    # Fund jack
+    fund_signer(shared_state, 'jack', 1_000_000)
+    # jack Opt-in
+    res = application_call(
+        shared_state,
+        'get_version',
+        signer='jack',
+        txn_args=['on_complete:1']
+    )
+    assert res.abi_return == 2
+    # Set a value in local storage
+    res = application_call (
+        shared_state,
+        'set_l',
+        [3],
+        signer='jack'
+    )
+
+    # Read value
+    res = application_call (
+        shared_state,
+        'get_l',
+        signer='jack'
+    )
+    # print(res)
+    assert res.abi_return == 3
+
+
+## Jack opts in, stores something in global storate, reads value
+def test_global_all(shared_state):
+    # Fund jack (note the amount must be different to avoid "transaction already in ledger")
+    fund_signer(shared_state, 'jack', 1_000_001)
+    # Set a value in global storage
+    res = application_call (
+        shared_state,
+        'set_g',
+        [3987],
+        signer='jack'
+    )
+
+    # Read value
+    res = application_call (
+        shared_state,
+        'get_g',
+        signer='jack'
+    )
+    # print(res)
+    assert res.abi_return == 3987
+
+
+## Jack opts in, stores something in global storate, reads value
+def test_box_all(shared_state):
+    # Fund jack (note the amount must be different to avoid "transaction already in ledger")
+    fund_signer(shared_state, 'jack', 1_000_002)
+    # Set a value in global storage
+    res = application_call (
+        shared_state,
+        'set_b',
+        [999123],
+        signer='jack'
+    )
+
+    # Read value
+    res = application_call (
+        shared_state,
+        'get_b',
+        signer='jack'
+    )
+    # print(res)
+    assert res.abi_return == 999123
+
