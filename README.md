@@ -34,6 +34,7 @@ Programs:
 - **clean.py**: tool to remove entries from `shelve.db`
 - **deploy.py**: deploy program (you don't say!). Gets data from shelve db and uses it with the files to deploy the contract in the selected network with the selected account
 - **interact.py**: an application that interacts with the application using the compiled client
+- **test_template.py**: a test template to ease integration testing on localnet/testnet
 
 
 Generated files:
@@ -253,3 +254,40 @@ set_b 999
 ```
 
 if the method requires more parameters in the call just add them separated by spaces
+
+
+### Step8: Integration testing
+`test_template.py` is a generic **pytest** template for tests
+
+Since algopy_testing module simply simulate the AVM and **does not** allow you to test all transaction possible uses, you need to test the contract in a complete lagorand setup (localnet, testnet).
+
+This template relies on the fact that the contract/app was deployed using applications in steps 1 through 5 of this set and that the right values of the app to be tested are in the shelve.db file.
+
+#### Test setup
+
+The first 400 lines or so take care of importing the values of `shalve.db` in a SharedState object that will be used by the fixtures and the tests and implements some helper functions
+
+For your convenience some funcitons are provided:
+- `application_call`: helps you submitting a transaction. You need to pass it the SharedState object, name of the method, optional method parameters, optional transaction parameters (on_complete etc). Use this function to interact with the contract.
+- `dump_state` : dumps the SharedState. You can provide an extra key parameter if you want to dump just that key
+- `new_signer` : adds a new signer (user account) to the SharedState and optionally funds it using funds from the main address (defined by `generate_account.py`). The new signer is given a name and can later be used to send transactions via `application_call`
+- `signer_balance`  : returns the balance (in microalgos) of a signer. The signer is identified by the account name and must have been previously created with `new_signer`
+- `fund_signer` : gives some funds to the previously created signer
+
+#### Running your own tests
+
+You can write your own tests as you would normally do for pytest. 
+Copy this file and modify the copy and add your custom tests there. All thest should be in the form
+
+``` python
+def test_something(shared_state):  ## You may add more fixtures if you need
+    ## Prepare the test
+    ## Interact with the SC
+    ## Chekc results
+    assert True == True
+```
+
+Then run it  with:
+```
+pytest -v -s test_XXX.py
+```
