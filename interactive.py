@@ -313,9 +313,12 @@ def _parse_methods():
 def _parse_actions(act):
     oc = ''
     cr = ''
+
     if "OptIn" in act['call']:
         oc+='1'
-    
+    if "DeleteApplication" in act['call']:
+        oc+='5'
+
     if len(cr) :
         cr = 'cr='+cr+'/'
     if len(oc) :
@@ -331,15 +334,27 @@ def _parse_actions(act):
 def _show_app_details():
     _line()
     print(f"🔵 Using contract:    \"{contract_name}\"\t(app id: {app_id}, app address: {app_address})")
-    box_names = algorand_client.app.get_box_names(app_id)
-    for box in box_names:
-        print(f"  🔹                  box {box.name}: {algorand_client.app.get_box_value(app_id, box.name)}")
-    gs = algorand_client.app.get_global_state(app_id)
-    for g in gs.keys():
-        print(f"  🔹                  gbl {g}: {gs[g].value }")
-    ls = algorand_client.app.get_local_state(app_id, address)
-    for l in ls.keys():
-        print(f"  🔹                  lcl {l}: {ls[l].value }")
+    
+    try:
+        box_names = algorand_client.app.get_box_names(app_id)
+        for box in box_names:
+            print(f"  🔹                  box {box.name}: {algorand_client.app.get_box_value(app_id, box.name)}")
+    except Exception as e:
+        print(f"  🔹                  no boxes")     
+
+    try:
+        gs = algorand_client.app.get_global_state(app_id)
+        for g in gs.keys():
+            print(f"  🔹                  gbl {g}: {gs[g].value }")
+    except Exception as e:
+        print(f"  🔹                  no globals")     
+    
+    try:
+        ls = algorand_client.app.get_local_state(app_id, address)
+        for l in ls.keys():
+            print(f"  🔹                  lcl {l}: {ls[l].value }")
+    except Exception as e:
+        print(f"  🔹                  no locals")     
 
 
 """
@@ -417,7 +432,15 @@ def do_method_tx(sc_method, method_args, txn_args) :
     global address
     global methods
 
-    app_method = getattr(app_client.send, sc_method)
+    # Why the hell the client needs to be so complicated
+    # and hide methods in different places?
+    app_method = None
+    if hasattr(app_client.send, sc_method):
+        app_method = getattr(app_client.send, sc_method)
+    elif hasattr(app_client.send.delete, sc_method):
+        app_method = getattr(app_client.send.delete, sc_method)
+    elif hasattr(app_client.send.opt_in, sc_method):
+        app_method = getattr(app_client.send.opt_in, sc_method)
 
     ## Get last blockchain round (See later)
     last_round = algorand_client.client.algod.status()['last-round']

@@ -208,8 +208,8 @@ else:
 '''
 
 ## Get contract factory from client, use reflection to import factory
-factory_method = getattr(client_object, contract_name+'Factory')
-factory = factory_method(
+factory_class = getattr(client_object, contract_name+'Factory')
+factory = factory_class(
     algorand = algorand_client,
     default_sender = signer.address,
     default_signer = signer
@@ -221,7 +221,6 @@ try:
     app_client, deploy_response = factory.send.create.bare()
     app_id = app_client.app_id
     app_address = app_client.app_address
-    
 except Exception as e:
     print("💩 ", e)
     print("❌ Could not deploy contract ! Quitting")
