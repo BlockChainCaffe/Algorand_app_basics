@@ -228,6 +228,15 @@ def _init():
         abi = json.loads(f.read())
     methods = abi['methods']
 
+    ## Check if the app exists
+    try:
+        exists = algorand_client.client.algod.application_info(app_id)
+    except Exception as e:
+        if e.code == 404:
+            print("💩 ", e)
+            print("❌ Application does not exist")
+            exit(2404)
+
     ## Get a handler of the deployed HelloWord contract
     client_class = getattr(client_object, contract_name+'Client')
     app_client = algorand_client.client.get_typed_app_client_by_id(client_class , app_id = app_id)
