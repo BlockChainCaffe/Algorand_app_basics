@@ -441,15 +441,6 @@ def do_method_tx(sc_method, method_args, txn_args) :
     global address
     global methods
 
-    # Why the hell the client needs to be so complicated
-    # and hide methods in different places?
-    app_method = None
-    if hasattr(app_client.send, sc_method):
-        app_method = getattr(app_client.send, sc_method)
-    elif hasattr(app_client.send.delete, sc_method):
-        app_method = getattr(app_client.send.delete, sc_method)
-    elif hasattr(app_client.send.opt_in, sc_method):
-        app_method = getattr(app_client.send.opt_in, sc_method)
 
     ## Get last blockchain round (See later)
     last_round = algorand_client.client.algod.status()['last-round']
@@ -463,7 +454,6 @@ def do_method_tx(sc_method, method_args, txn_args) :
     cacp['first_valid_round'] = last_round
     cacp['last_valid_round'] = last_round +1000
 
-
     ## Parse the transactions parameters like
     ## ex:  string "on_complete:1" becomes dict {'on_complete':1}
     ##      and gets later passed to the ApplicationCall
@@ -473,6 +463,36 @@ def do_method_tx(sc_method, method_args, txn_args) :
         if arg_value.isnumeric():
             arg_value = int(arg_value)
         cacp[arg_key]=arg_value
+
+    # Get the method from the relevant part of the class
+    # Cross check with the transaction parameter
+    app_method = None
+    # NoOp
+    if (hasattr(app_client.send, sc_method) and 
+        (
+            not 'on_complete' in cacp.keys()
+            or cacp['on_complete'] == 0
+        )
+    ):
+        app_method = getattr(app_client.send, sc_method)
+    # DeleteApplication
+    elif (hasattr(app_client.send.delete, sc_method) and
+          'on_complete' in cacp.keys() and
+          cacp['on_complete'] == 5
+    ):
+        app_method = getattr(app_client.send.delete, sc_method)
+    # OptIn
+    elif (hasattr(app_client.send.opt_in, sc_method) and
+          'on_complete' in cacp.keys() and
+          cacp['on_complete'] == 1
+    ):
+        app_method = getattr(app_client.send.opt_in, sc_method)
+    ## Got method?
+    if app_method == None:
+        print(f"❌ Method was not called with proper `on_complete` parameter")
+        print(f"   Please specify one of the following: {methods[sc_method]['actions']['call']}")
+        input(f"🔻 Press any key to continue")
+        return False
 
     # These are the parameter sent to the app call
     app_call_params={
